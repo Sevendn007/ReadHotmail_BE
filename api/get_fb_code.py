@@ -2,8 +2,8 @@ from http.server import BaseHTTPRequestHandler
 import json
 import re
 
-from hotmail_oauth import GetOAuth2Token, get_latest_emails  # đổi tên file theo script của bạn
-
+from hotmail_oauth import GetOAuth2Token, get_latest_emails
+from auth_utils import verify_token, AuthError        # <-- thêm dòng này
 
 def process_credential(raw: str):
     """
@@ -127,10 +127,9 @@ def process_credential(raw: str):
 
 class handler(BaseHTTPRequestHandler):
     def _set_cors_headers(self):
-        # CORS đơn giản – nếu muốn an toàn hơn thì đổi * thành domain GitHub Pages của bạn
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
 
     def do_OPTIONS(self):
         self.send_response(200)
@@ -139,6 +138,25 @@ class handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         try:
+            # 1) Check auth token
+            auth_header = self.headers.get("Authorization", "")
+            if not auth_header.startswith("Bearer "):
+                self._respond_json(
+                    401,
+                    {"success": False, "error": "missing Authorization bearer token"},
+                )
+                return
+
+            token = auth_header.split(" ", 1)[1].strip()
+            try:
+                username = verify_token(token)
+            except AuthError as e:
+                self._respond_json(
+                    401,
+                    {"success": False, "error": f"invalid token: {e}"},
+                )
+                return
+
             content_length = int(self.headers.get("Content-Length", "0"))
             body = self.rfile.read(content_length or 0)
             try:
